@@ -14,7 +14,7 @@ Este documento recoge, paso a paso, todas las consultas SQL utilizadas en el pro
 
 Antes de aplicar cualquier transformación, se genera una copia de la tabla fuente. De esta forma, todo el proceso de limpieza se realiza sobre `campaña_clean`, dejando `campaña_marketing_crudo` intacta como referencia original.
 
-```
+```sql
 SELECT*
 INTO campaña_clean
 FROM campaña_marketing_crudo
@@ -35,7 +35,7 @@ En esta fase se homogeneiza el formato de todas las columnas de texto. Para cada
 
 Se detectan empresas repetidas con mayúsculas/minúsculas mezcladas y distintos sufijos legales (S.L., SL, S.A., S.L.U.). Al compartir siempre el mismo texto inicial, se estandarizan con `LIKE 'nombre%'`.
 
-```
+```sql
 SELECT
 	DISTINCT empresa
 FROM campaña_clean
@@ -64,7 +64,7 @@ SET
 
 A diferencia de `empresa`, aquí las variantes **no comparten un prefijo común** (por ejemplo, "Comunidad Valenciana" y "CV" no tienen relación textual entre sí), por lo que `LIKE` no es aplicable. En su lugar, se usa `IN` con la lista explícita de todas las variantes detectadas para cada comunidad. Los nulos disfrazados de texto (`n/a`, `sin datos`, `desconocido`, `-`) se convierten aquí directamente a `NULL`, para poder tratarlos más adelante junto al resto de valores ausentes según las reglas de negocio.
 
-```
+```sql
 SELECT
 	DISTINCT comunidad_autonoma
 FROM campaña_clean
@@ -93,7 +93,7 @@ SET
 
 En esta columna no se detectan variantes de formato relevantes en las categorías propias; el único tratamiento necesario es convertir los nulos disfrazados de texto a `NULL` real, para que sean gestionados junto al resto de valores ausentes en la fase 4.
 
-```
+```sql
 SELECT
 	DISTINCT sector
 FROM campaña_clean
@@ -118,7 +118,7 @@ SET
 
 Se estandarizan abreviaturas y sinónimos del mismo canal (p. ej. "RRSS" / "redes sociales" / "Social Media" → "Redes Sociales"), unificando el criterio a un único valor canónico por canal.
 
-```
+```sql
 SELECT
 	DISTINCT canal_marketing
 FROM campaña_clean
@@ -145,7 +145,7 @@ SET
 
 Se corrige la mezcla de mayúsculas y minúsculas en las categorías `Fidelización` y `Branding`, que eran las únicas con inconsistencias detectadas.
 
-```
+```sql
 SELECT
 	DISTINCT tipo_campana
 FROM campaña_clean
@@ -167,7 +167,7 @@ SET
 
 Al igual que en `empresa`, todas las variantes de cada responsable comparten el mismo nombre como prefijo, por lo que se usa `LIKE 'nombre%'` para capturarlas todas de una vez. Adicionalmente, se aprovecha este `UPDATE` para convertir los nulos disfrazados de texto (`sin datos`, `n/a`, `desconocido`, `-`) a `NULL`.
 
-```
+```sql
 SELECT
 	DISTINCT responsable
 FROM campaña_clean
@@ -203,7 +203,7 @@ SET
 
 Se unifican las variantes de mayúsculas/minúsculas encontradas en los estados `Activa` y `Finalizada`.
 
-```
+```sql
 SELECT
 	DISTINCT estado_campana
 FROM campaña_clean
@@ -227,7 +227,7 @@ SET
 
 Con las columnas de texto ya estandarizadas, se procede a identificar y eliminar los registros duplicados. Se utiliza la función de ventana `ROW_NUMBER()`, particionando por `id_campana`: cualquier fila con un número de partición mayor que 1 es una copia duplicada de esa misma campaña. El resultado se materializa en una nueva tabla (`campaña_limpio`) antes de eliminar las filas sobrantes.
 
-```
+```sql
 WITH duplicados_cte as
 (
 SELECT
@@ -263,7 +263,7 @@ Con los datos ya estandarizados y sin duplicados, se aplican las tres reglas de 
 
 **Regla 1 — Empresa no registrada → se elimina la fila.**
 
-```
+```sql
 DELETE
 FROM campaña_limpio
 WHERE empresa IS NULL
@@ -271,7 +271,7 @@ WHERE empresa IS NULL
 
 **Regla 2 — Información contextual ausente (comunidad autónoma, sector, responsable) → se marca como `'DESCONOCIDO'`.**
 
-```
+```sql
 UPDATE campaña_limpio
 SET
 	comunidad_autonoma = 'DESCONOCIDO'
@@ -290,7 +290,7 @@ WHERE responsable IS NULL
 
 **Regla 3 — Faltan 2 o más de las 5 métricas de análisis → se elimina la fila.** Para aplicarla, se calcula por fila cuántas de las cinco métricas (`gasto_campana`, `ingresos`, `impresiones`, `clics`, `conversiones`) están vacías, sumando un `CASE WHEN ... IS NULL` por cada una. El resultado se vuelca en la tabla final (`campañas_limpio_final`), se eliminan las filas que incumplen la regla, y finalmente se descarta la columna auxiliar `metricas_faltantes` por no aportar información al análisis.
 
-```
+```sql
 WITH métricas_CTE as
 (
 SELECT
@@ -320,7 +320,7 @@ DROP COLUMN metricas_faltantes
 
 Se comprueba que la tabla ha quedado correctamente estandarizada, sin duplicados y con los nulos tratados según las reglas de negocio. Finalmente, se eliminan las tablas intermedias generadas durante el proceso (`campaña_clean` y `campaña_limpio`), conservando en el repositorio únicamente la tabla fuente y la tabla limpia final.
 
-```
+```sql
 DELETE FROM campaña_clean
 DELETE FROM campaña_limpio
 
